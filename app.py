@@ -2,6 +2,7 @@ import streamlit as st
 import asyncio
 from litellm import acompletion
 import os
+import time
 
 st.set_page_config(page_title="CouncilAI", page_icon="🧠", layout="wide")
 
@@ -13,7 +14,6 @@ MODEL_AVATARS = {
     "grok": "🔍",
     "claude": "⚖️",
     "gpt": "🚀",
-    "gemini": "✨"
 }
 
 # ====================== SIDEBAR ======================
@@ -31,15 +31,15 @@ with st.sidebar:
         os.environ["OPENROUTER_API_KEY"] = openrouter_key
 
     available_models = [
-        "openrouter/x-ai/grok-4.1-fast", # Very cheap + fast
-        "openrouter/anthropic/claude-sonnet-4-6", # Strong reasoning
-        "openrouter/openai/gpt-4.1" # Good generalist model
+        "openrouter/x-ai/grok-4.1-fast",
+        "openrouter/anthropic/claude-sonnet-4-6",
+        "openrouter/openai/gpt-4.1"
     ]
     
     selected_models = st.multiselect(
         "Select Council Members (2-3 recommended)", 
         available_models, 
-        default=[available_models[0], available_models[1]] # Grok fast + Claude by default
+        default=[available_models[0], available_models[1]]
     )
 
     personas = {}
@@ -58,6 +58,71 @@ with st.sidebar:
     st.caption("💰 Using cheap models → ~2–8 cents per run")
 
 # ====================== MAIN INPUT ======================
+query = st.text_area(
+    "What should the AI Council discuss?", 
+    height=130,
+    placeholder="What are the best career moves for someone strong in DevSecOps and Python in 2026?"
+)
+
+if st.button("🚀 Convene the Council", type="primary", use_container_width=True):
+    if not openrouter_key:
+        st.error("Please enter your OpenRouter API Key")
+        st.stop()
+    
+    if len(selected_models) < 1:
+        st.error("Please select at least one council member")
+        st.stop()
+
+    start_time = time.time()   # Start timing
+
+    with st.spinner("Council is debating..."):
+        try:
+            result = asyncio.run(run_council(query, selected_models, personas, num_rounds, chairman_model))
+            end_time = time.time()
+            time_taken = round(end_time - start_time, 2)
+
+            # Display Discussion with Avatars
+            st.subheader("📜 Council Discussion")
+            for round_num, round_data in enumerate(result["rounds"], 1):
+                with st.expander(f"Round {round_num}", expanded=True):
+                    for resp in round_data["responses"]:
+                        model_name = resp["model"].split("/")[-1]
+                        avatar_key = next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt")
+                        avatar = MODEL_AVATARS[avatar_key]
+                        st.markdown(f"{avatar} **{model_name}**")
+                        st.caption(personas.get(resp["model"], ""))
+                        st.write(resp["content"])
+                        st.divider()
+
+            st.subheader("🏛️ Final Consensus")
+            st.success(result["final"])
+
+            # ====================== VISUAL COST & TIME PANEL ======================
+            st.subheader("📊 Usage Analytics")
+
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric(label="⏱️ Time Taken", value=f"{time_taken} seconds")
+            
+            with col2:
+                estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.015), 4)
+                st.metric(label="💰 Estimated Cost", value=f"${estimated_cost}")
+
+            # Simple Cost Bar Visualization
+            st.progress(min(estimated_cost / 0.20, 1.0))  # Assuming $0.20 is "high" for one run
+            st.caption("Cost bar (0.20 USD = high usage for one council run)")
+
+            st.info("💡 Tip: Using fewer models and 1 round keeps costs under 5 cents.")
+
+        except Exception as e:
+            error_text = str(e)
+            if "valid model ID" in error_text or "invalid_request_error" in error_text:
+                st.error("Model not available. Please try different models.")
+            else:
+                st.error(f"Error: {error_text}")
+
+# ====================== COUNCIL LOGIC ======================
 async def run_council(query: str, models: list, personas: dict, num_rounds: int, chairman: str):
     all_responses = []
     all_rounds = []
@@ -93,6 +158,7 @@ Be concise, insightful, and constructive."""
 
         all_rounds.append({"round": r+1, "responses": round_responses})
 
+    # Chairman synthesis
     chairman_system = "You are the impartial Chairman. Synthesize the strongest final answer from the full discussion."
     chairman_user_content = query + "\n\nCouncil discussion:\n" + "\n".join([f"[{resp['model'].split('/')[-1]}]: {resp['content']}" for resp in all_responses]) + "\n\nProvide the best consolidated solution."
 
@@ -104,47 +170,3 @@ Be concise, insightful, and constructive."""
     )
     
     return {"rounds": all_rounds, "final": final_resp.choices[0].message.content}
-
-query = st.text_area(
-    "What should the AI Council discuss?", 
-    height=130,
-    placeholder="What are the best career moves for someone strong in DevSecOps and Python in 2026?"
-)
-
-if st.button("🚀 Convene the Council", type="primary", use_container_width=True):
-    if not openrouter_key:
-        st.error("Please enter your OpenRouter API Key")
-        st.stop()
-    
-    if len(selected_models) < 1:
-        st.error("Please select at least one council member")
-        st.stop()
-
-    with st.spinner("Council is debating... (15–50 seconds)"):
-        try:
-            result = asyncio.run(run_council(query, selected_models, personas, num_rounds, chairman_model))
-            
-            # Display with avatars
-            st.subheader("📜 Council Discussion")
-            for round_num, round_data in enumerate(result["rounds"], 1):
-                with st.expander(f"Round {round_num}", expanded=True):
-                    for resp in round_data["responses"]:
-                        model_name = resp["model"].split("/")[-1]
-                        avatar_key = next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt")
-                        avatar = MODEL_AVATARS[avatar_key]
-                        st.markdown(f"{avatar} **{model_name}**")
-                        st.caption(personas.get(resp["model"], ""))
-                        st.write(resp["content"])
-                        st.divider()
-
-            st.subheader("🏛️ Final Consensus")
-            st.success(result["final"])
-
-            st.info("💰 Estimated cost for this run: ~$0.04 - $0.08")
-
-        except Exception as e:
-            error_text = str(e)
-            if "valid model ID" in error_text or "invalid_request_error" in error_text:
-                st.error("Model not available. Please try different models from the list.")
-            else:
-                st.error(f"Error: {error_text}")
