@@ -58,6 +58,53 @@ with st.sidebar:
     st.caption("💰 Using cheap models → ~2–8 cents per run")
 
 # ====================== MAIN INPUT ======================
+async def run_council(query: str, models: list, personas: dict, num_rounds: int, chairman: str):
+    all_responses = []
+    all_rounds = []
+
+    for r in range(num_rounds):
+        tasks = []
+        for model in models:
+            system_prompt = f"""You are {model.split('/')[-1]} on the AI Council.
+Your persona: {personas.get(model, 'Expert')}.
+Be concise, insightful, and constructive."""
+
+            user_content = query
+            if all_responses:
+                user_content += "\n\nPrevious responses:\n" + "\n".join([f"[{resp['model'].split('/')[-1]}]: {resp['content'][:300]}" for resp in all_responses])
+
+            full_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
+
+            tasks.append(acompletion(
+                model=model, 
+                messages=full_messages, 
+                temperature=0.7, 
+                max_tokens=450
+            ))
+
+        responses = await asyncio.gather(*tasks)
+
+        round_responses = []
+        for i, resp in enumerate(responses):
+            content = resp.choices[0].message.content
+            response_dict = {"model": models[i], "content": content}
+            round_responses.append(response_dict)
+            all_responses.append(response_dict)
+
+        all_rounds.append({"round": r+1, "responses": round_responses})
+
+    chairman_system = "You are the impartial Chairman. Synthesize the strongest final answer from the full discussion."
+    chairman_user_content = query + "\n\nCouncil discussion:\n" + "\n".join([f"[{resp['model'].split('/')[-1]}]: {resp['content']}" for resp in all_responses]) + "\n\nProvide the best consolidated solution."
+
+    final_resp = await acompletion(
+        model=chairman, 
+        messages=[{"role": "system", "content": chairman_system}, {"role": "user", "content": chairman_user_content}],
+        temperature=0.5, 
+        max_tokens=600
+    )
+    
+    return {"rounds": all_rounds, "final": final_resp.choices[0].message.content}
+
 query = st.text_area(
     "What should the AI Council discuss?", 
     height=130,
@@ -121,52 +168,3 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
                 st.error("Model not available. Please try different models.")
             else:
                 st.error(f"Error: {error_text}")
-
-# ====================== COUNCIL LOGIC ======================
-async def run_council(query: str, models: list, personas: dict, num_rounds: int, chairman: str):
-    all_responses = []
-    all_rounds = []
-
-    for r in range(num_rounds):
-        tasks = []
-        for model in models:
-            system_prompt = f"""You are {model.split('/')[-1]} on the AI Council.
-Your persona: {personas.get(model, 'Expert')}.
-Be concise, insightful, and constructive."""
-
-            user_content = query
-            if all_responses:
-                user_content += "\n\nPrevious responses:\n" + "\n".join([f"[{resp['model'].split('/')[-1]}]: {resp['content'][:300]}" for resp in all_responses])
-
-            full_messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
-
-            tasks.append(acompletion(
-                model=model, 
-                messages=full_messages, 
-                temperature=0.7, 
-                max_tokens=450
-            ))
-
-        responses = await asyncio.gather(*tasks)
-
-        round_responses = []
-        for i, resp in enumerate(responses):
-            content = resp.choices[0].message.content
-            response_dict = {"model": models[i], "content": content}
-            round_responses.append(response_dict)
-            all_responses.append(response_dict)
-
-        all_rounds.append({"round": r+1, "responses": round_responses})
-
-    # Chairman synthesis
-    chairman_system = "You are the impartial Chairman. Synthesize the strongest final answer from the full discussion."
-    chairman_user_content = query + "\n\nCouncil discussion:\n" + "\n".join([f"[{resp['model'].split('/')[-1]}]: {resp['content']}" for resp in all_responses]) + "\n\nProvide the best consolidated solution."
-
-    final_resp = await acompletion(
-        model=chairman, 
-        messages=[{"role": "system", "content": chairman_system}, {"role": "user", "content": chairman_user_content}],
-        temperature=0.5, 
-        max_tokens=600
-    )
-    
-    return {"rounds": all_rounds, "final": final_resp.choices[0].message.content}
