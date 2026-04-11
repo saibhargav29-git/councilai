@@ -2,8 +2,7 @@
 
 **An AI Council where multiple frontier models discuss, debate, and deliver the best possible answer.**
 
-![Banner](https://via.placeholder.com/800x200/0A2540/FFFFFF?text=CouncilAI+-+AI+Council)  
-*(Replace with your actual banner image later)*
+
 
 ## ✨ What is CouncilAI?
 
