@@ -6,98 +6,93 @@ from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from litellm import acompletion
 
-# ====================== STATE DEFINITION ======================
+# ====================== STATE ======================
 class CouncilState(TypedDict):
-    query: str                          # Original user question
-    messages: Annotated[List[BaseMessage], add_messages]  # Full conversation history
-    round_responses: Annotated[List[Dict], add]   # List of responses per round
+    query: str
+    messages: Annotated[List[BaseMessage], add_messages]
+    round_responses: Annotated[List[List[Dict]], add]   # List of rounds, each round is a list of responses
     current_round: int
     num_rounds: int
     selected_models: List[str]
     personas: Dict[str, str]
-    final_answer: str                   # Final chairman synthesis
+    chairman_model: str
+    final_answer: str
 
 
-# ====================== HELPER: CALL MODEL ASYNC ======================
-async def call_model(model: str, system_prompt: str, user_content: str, temperature: float = 0.7, max_tokens: int = 1500):
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content}
-    ]
-    response = await acompletion(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens
-    )
-    return response.choices[0].message.content.strip()
+# ====================== HELPER ======================
+async def call_model(model: str, system_prompt: str, user_content: str, temperature: float = 0.7, max_tokens: int = 600):
+    try:
+        response = await acompletion(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"[Error with {model.split('/')[-1]}]: {str(e)}"
 
 
-# ====================== NODE: DEBATE ROUND (Parallel) ======================
+# ====================== NODE: DEBATE ROUND ======================
 async def debate_round(state: CouncilState) -> Dict:
-    """One debate round where all council members respond in parallel"""
-    current_round = state.get("current_round", 1)
+    current_round = state["current_round"]
     models = state["selected_models"]
     personas = state["personas"]
     query = state["query"]
 
-    # Build context from previous responses
+    # Build context from previous round only
     previous_context = ""
     if state.get("round_responses"):
-        previous = state["round_responses"][-len(models):]  # last round only
+        last_round = state["round_responses"][-1]
         previous_context = "\n\nPrevious round:\n" + "\n".join(
-            [f"[{resp['model'].split('/')[-1]}]: {resp['content'][:400]}" for resp in previous]
+            [f"[{resp['model'].split('/')[-1]}]: {resp['content'][:450]}" for resp in last_round]
         )
 
     tasks = []
-    model_responses = []
-
     for model in models:
         system_prompt = f"""You are {model.split('/')[-1]} on the AI Council.
 Your persona: {personas.get(model, 'Expert')}.
 Be concise, insightful, constructive, and direct. Avoid fluff."""
 
         user_content = query + previous_context
+        tasks.append(call_model(model, system_prompt, user_content, temperature=0.75))
 
-        tasks.append(call_model(model, system_prompt, user_content))
-
-    # Run all models in parallel
     raw_responses = await asyncio.gather(*tasks, return_exceptions=True)
 
+    this_round = []
     for i, content in enumerate(raw_responses):
         model_name = models[i]
-        if isinstance(content, Exception):
-            content = f"Error calling model: {str(content)}"
-        
+        content_str = str(content) if not isinstance(content, Exception) else f"Error: {content}"
+
         response_dict = {
             "model": model_name,
-            "content": str(content),
+            "content": content_str,
             "round": current_round
         }
-        model_responses.append(response_dict)
+        this_round.append(response_dict)
 
-        # Add to LangChain messages for history
+        # Add to history
         short_name = model_name.split("/")[-1]
-        state["messages"].append(AIMessage(content=content, name=short_name))
+        state["messages"].append(AIMessage(content=content_str, name=short_name))
 
     return {
-        "round_responses": model_responses,
+        "round_responses": [this_round],   # One round = one list
         "current_round": current_round + 1,
-        "messages": []  # reducer will handle appending
     }
 
 
-# ====================== NODE: CHAIRMAN SYNTHESIS ======================
+# ====================== NODE: CHAIRMAN ======================
 async def chairman_synthesis(state: CouncilState) -> Dict:
-    """Chairman model synthesizes the best final answer"""
-    chairman = state["selected_models"][0]  # For now, use first model as chairman (we'll improve this)
-    # In next part we'll make chairman selectable properly
+    chairman = state["chairman_model"]
 
-    discussion = "\n\n".join([
-        f"[{resp['model'].split('/')[-1]} Round {resp['round']}]: {resp['content']}"
-        for round_list in state.get("round_responses", [])
-        for resp in (round_list if isinstance(round_list, list) else [])
-    ])
+    discussion = ""
+    for round_list in state.get("round_responses", []):
+        for resp in round_list:
+            short_name = resp["model"].split("/")[-1]
+            discussion += f"[{short_name} Round {resp['round']}]: {resp['content']}\n\n"
 
     system_prompt = """You are the impartial Chairman of the AI Council.
 Synthesize the strongest, most balanced, and actionable final answer.
@@ -105,7 +100,7 @@ Combine the best ideas, resolve contradictions, and deliver a clear consensus.""
 
     user_content = f"""Original Question: {state['query']}
 
-Council Discussion:
+Full Council Discussion:
 {discussion}
 
 Provide the best consolidated solution."""
@@ -115,29 +110,23 @@ Provide the best consolidated solution."""
         system_prompt=system_prompt,
         user_content=user_content,
         temperature=0.5,
-        max_tokens=2000
+        max_tokens=800
     )
 
-    # Add final answer to messages
     state["messages"].append(AIMessage(content=final_content, name="Chairman"))
 
-    return {
-        "final_answer": final_content
-    }
+    return {"final_answer": final_content}
 
 
-# ====================== BUILD THE GRAPH ======================
+# ====================== BUILD GRAPH ======================
 def build_council_graph():
     workflow = StateGraph(CouncilState)
 
-    # Add nodes
     workflow.add_node("debate_round", debate_round)
     workflow.add_node("chairman_synthesis", chairman_synthesis)
 
-    # Define flow
     workflow.add_edge(START, "debate_round")
 
-    # Conditional routing: repeat debate rounds or go to chairman
     def should_continue(state: CouncilState):
         if state.get("current_round", 1) > state.get("num_rounds", 1):
             return "chairman_synthesis"
@@ -146,10 +135,7 @@ def build_council_graph():
     workflow.add_conditional_edges(
         "debate_round",
         should_continue,
-        {
-            "debate_round": "debate_round",
-            "chairman_synthesis": "chairman_synthesis"
-        }
+        {"debate_round": "debate_round", "chairman_synthesis": "chairman_synthesis"}
     )
 
     workflow.add_edge("chairman_synthesis", END)
@@ -157,5 +143,4 @@ def build_council_graph():
     return workflow.compile()
 
 
-# For easy import
 council_graph = build_council_graph()

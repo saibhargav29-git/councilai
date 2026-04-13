@@ -45,12 +45,13 @@ with st.sidebar:
 
     personas = {}
     for model in selected_models:
-        short_name = model.split("/")[-1].replace("-", " ")
+        short_name = model.split("/")[-1].replace("-", " ").title()
         avatar_key = next((k for k in MODEL_AVATARS if k in model.lower()), "gpt")
         avatar = MODEL_AVATARS[avatar_key]
         default_persona = "Truth-seeking contrarian" if "grok" in model else \
                           "Rigorous analytical thinker" if "claude" in model else \
                           "Creative optimist" if "gpt" in model else "Fast pragmatic engineer"
+        
         personas[model] = st.text_input(f"{avatar} Persona for {short_name}", value=default_persona)
 
     num_rounds = st.slider("Number of Debate Rounds", 1, 3, 1)
@@ -76,7 +77,6 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
 
     start_time = time.time()
 
-    # Prepare initial state
     initial_state: CouncilState = {
         "query": query,
         "messages": [HumanMessage(content=query)],
@@ -85,12 +85,12 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
         "num_rounds": num_rounds,
         "selected_models": selected_models,
         "personas": personas,
+        "chairman_model": chairman_model,
         "final_answer": ""
     }
 
-    with st.spinner("Council is debating using LangGraph..."):
+    with st.spinner("Council is debating..."):
         try:
-            # Run the graph
             result = asyncio.run(council_graph.ainvoke(initial_state))
             
             end_time = time.time()
@@ -98,35 +98,58 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
 
             # ====================== DISPLAY DISCUSSION ======================
             st.subheader("📜 Council Discussion")
-            
-            # Group responses by round (LangGraph stores them flattened)
-            round_dict = {}
-            for resp_list in result.get("round_responses", []):
-                if not isinstance(resp_list, list):
-                    resp_list = [resp_list]
-                for resp in resp_list:
-                    r = resp.get("round", 1)
-                    if r not in round_dict:
-                        round_dict[r] = []
-                    round_dict[r].append(resp)
 
-            for r in sorted(round_dict.keys()):
-                with st.expander(f"Round {r}", expanded=True):
-                    for resp in round_dict[r]:
+            tab1, tab2 = st.tabs(["💬 Live Chat View (WhatsApp Style)", "📋 Round-wise View"])
+
+            # ------------------- WhatsApp-style Live Chat -------------------
+            with tab1:
+                st.caption("Models debating like friends in a group chat 👥")
+
+                # Show original query as first message
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(f"**Question:** {query}")
+
+                # Show council members' responses
+                for round_list in result.get("round_responses", []):
+                    for resp in round_list:
                         model_name = resp["model"].split("/")[-1]
-                        avatar_key = next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt")
-                        avatar = MODEL_AVATARS[avatar_key]
+                        avatar = MODEL_AVATARS.get(
+                            next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt"), "🤖"
+                        )
                         
-                        st.markdown(f"{avatar} **{model_name}**")
-                        st.caption(personas.get(resp["model"], ""))
-                        st.write(resp["content"])
-                        st.divider()
+                        with st.chat_message(name=model_name, avatar=avatar):
+                            st.caption(f"**{model_name}** • Round {resp.get('round', 1)}")
+                            st.markdown(resp["content"])
 
-            # Final Answer
-            st.subheader("🏛️ Final Consensus")
-            st.success(result.get("final_answer", "No final answer generated."))
+                # Show Final Chairman
+                if result.get("final_answer"):
+                    with st.chat_message(name="Chairman", avatar="🏛️"):
+                        st.caption("**Chairman** • Final Synthesis")
+                        st.success(result["final_answer"])
 
-            # Analytics
+            # ------------------- Round-wise View (Original) -------------------
+            with tab2:
+                round_dict = {}
+                for round_list in result.get("round_responses", []):
+                    for resp in round_list:
+                        r = resp.get("round", 1)
+                        if r not in round_dict:
+                            round_dict[r] = []
+                        round_dict[r].append(resp)
+
+                for r in sorted(round_dict.keys()):
+                    with st.expander(f"Round {r}", expanded=False):
+                        for resp in round_dict[r]:
+                            model_name = resp["model"].split("/")[-1]
+                            avatar = MODEL_AVATARS.get(
+                                next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt"), "🤖"
+                            )
+                            st.markdown(f"{avatar} **{model_name}**")
+                            st.caption(personas.get(resp["model"], ""))
+                            st.write(resp["content"])
+                            st.divider()
+
+            # ====================== ANALYTICS ======================
             st.subheader("📊 Usage Analytics")
             col1, col2 = st.columns(2)
             with col1:
@@ -136,7 +159,7 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
                 st.metric("💰 Estimated Cost", f"${estimated_cost:.4f}")
 
             st.progress(min(estimated_cost / 0.20, 1.0))
-            st.caption("Cost bar (0.20 USD = high usage)")
+            st.caption("Cost bar (0.20 USD = high usage for one run)")
 
         except Exception as e:
-            st.error(f"Error running council graph: {str(e)}")
+            st.error(f"Error running council: {str(e)}")
