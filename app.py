@@ -2,6 +2,7 @@ from council_graph import council_graph, CouncilState
 import streamlit as st
 import asyncio
 from litellm import acompletion
+from langchain_core.messages import HumanMessage
 import os
 import time
 
