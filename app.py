@@ -15,7 +15,7 @@ MODEL_AVATARS = {
     "grok": "🔍",
     "claude": "⚖️",
     "gpt": "🚀",
-    "gemma": "🌟",      # New avatar for Gemma
+    "gemma": "🌟",
 }
 
 # ====================== AVAILABLE MODELS ======================
@@ -23,7 +23,7 @@ ALL_AVAILABLE_MODELS = [
     "openrouter/x-ai/grok-4.1-fast",
     "openrouter/anthropic/claude-sonnet-4-6",
     "openrouter/openai/gpt-4.1",
-    "openrouter/google/gemma-4-26b-a4b-it:free",   # Free Gemma 4 26B A4B
+    "openrouter/google/gemma-4-26b-a4b-it:free",
 ]
 
 # ====================== SIDEBAR ======================
@@ -40,7 +40,6 @@ with st.sidebar:
     if openrouter_key:
         os.environ["OPENROUTER_API_KEY"] = openrouter_key
 
-    # Council Members (Debaters) - Default: GPT + Gemma (Free)
     selected_models = st.multiselect(
         "Council Members (Debaters)", 
         ALL_AVAILABLE_MODELS, 
@@ -48,37 +47,33 @@ with st.sidebar:
             "openrouter/openai/gpt-4.1",
             "openrouter/google/gemma-4-26b-a4b-it:free"
         ],
-        help="These models will debate. Gemma 4 26B is free!"
+        help="These models will debate"
     )
 
-    # Chairman - Default to Claude
     chairman_model = st.selectbox(
         "Chairman Model (Final Synthesis)", 
         ALL_AVAILABLE_MODELS,
         index=1,   # Claude Sonnet 4.6
-        help="Recommended: Claude Sonnet 4.6 for best final answer"
+        help="Recommended: Claude Sonnet 4.6"
     )
 
-    st.caption("💡 **Current Setup:** Grok = Critic | Claude = Chairman | GPT + Gemma (free) as debaters")
+    st.caption("💡 Grok = Critic (after every round) | Claude = Chairman | Gemma is free")
 
-    # Personas for debaters
     personas = {}
     for model in selected_models:
         short_name = model.split("/")[-1].replace("-", " ").replace("it:free", "").title()
-        # Auto avatar
         avatar_key = next((k for k in MODEL_AVATARS if k in model.lower()), "gemma")
         avatar = MODEL_AVATARS[avatar_key]
         
         default_persona = "Truth-seeking contrarian" if "grok" in model else \
                           "Rigorous analytical thinker" if "claude" in model else \
-                          "Creative optimist" if "gpt" in model else \
-                          "Fast & efficient thinker" if "gemma" in model else "Expert"
+                          "Creative optimist" if "gpt" in model else "Fast & efficient thinker"
         
         personas[model] = st.text_input(f"{avatar} Persona for {short_name}", value=default_persona)
 
-    num_rounds = st.slider("Number of Debate Rounds", 1, 3, 1)
+    num_rounds = st.slider("Number of Debate Rounds", 1, 3, 2)
 
-    st.caption("💰 Gemma is **free** → Great way to add more diversity without extra cost!")
+    st.caption("Critic (Grok) will now appear right after each round in Live Chat")
 
 # ====================== MAIN INPUT ======================
 query = st.text_area(
@@ -111,49 +106,56 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
         "final_answer": ""
     }
 
-    with st.spinner("Council is working... (GPT + Gemma debating, Grok criticizing, Claude synthesizing)"):
+    with st.spinner("Council is working... Critic appears after every round"):
         try:
             result = asyncio.run(council_graph.ainvoke(initial_state))
             
             end_time = time.time()
             time_taken = round(end_time - start_time, 2)
 
-            # ====================== DISPLAY ======================
             st.subheader("📜 Council Discussion")
 
-            tab1, tab2 = st.tabs(["💬 Live Chat View", "📋 Round-wise View"])
+            tab1, tab2 = st.tabs(["💬 Live Chat View (WhatsApp Style)", "📋 Round-wise View"])
 
+            # ==================== IMPROVED LIVE CHAT VIEW ====================
             with tab1:
-                st.caption("Live debate with GPT + Gemma (free)")
+                st.caption("Live group chat — Critic (Grok) speaks after every round")
 
+                # User Question
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(f"**Question:** {query}")
 
-                for round_list in result.get("round_responses", []):
+                # Sequential display: Round → Critic → Round → Critic ...
+                max_rounds = len(result.get("round_responses", []))
+                for i in range(max_rounds):
+                    round_list = result["round_responses"][i]
+
+                    # Show Council Members' responses for this round
                     for resp in round_list:
                         model_name = resp["model"].split("/")[-1].replace("it:free", "")
                         avatar_key = next((k for k in MODEL_AVATARS if k in resp["model"].lower()), "gemma")
                         avatar = MODEL_AVATARS[avatar_key]
-                        
+
                         with st.chat_message(name=model_name, avatar=avatar):
-                            st.caption(f"**{model_name}** • Round {resp.get('round', 1)}")
+                            st.caption(f"**{model_name}** • Round {resp.get('round', i+1)}")
                             st.markdown(resp["content"])
 
-                # Critic (Grok)
-                for crit in result.get("criticisms", []):
-                    with st.chat_message(name="Critic", avatar="🧐"):
-                        st.caption(f"**Critic (Grok)** • After Round {crit.get('round', '')}")
-                        st.warning(crit["content"])
+                    # Show Critic feedback RIGHT AFTER this round
+                    if i < len(result.get("criticisms", [])):
+                        crit = result["criticisms"][i]
+                        with st.chat_message(name="Critic", avatar="🧐"):
+                            st.caption(f"**Critic (Grok)** • Feedback after Round {crit.get('round', i+1)}")
+                            st.warning(crit["content"])
 
-                # Chairman
+                # Final Chairman Synthesis
                 if result.get("final_answer"):
                     chairman_name = chairman_model.split("/")[-1].replace("sonnet-4-6", "Sonnet 4.6")
                     with st.chat_message(name="Chairman", avatar="🏛️"):
                         st.caption(f"**Chairman ({chairman_name})** • Final Synthesis")
                         st.success(result["final_answer"])
 
+            # ==================== ROUND-WISE VIEW ====================
             with tab2:
-                # (Same round-wise view as before - kept for clarity)
                 round_dict = {}
                 for round_list in result.get("round_responses", []):
                     for resp in round_list:
@@ -185,11 +187,10 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
             with col1:
                 st.metric("⏱️ Time Taken", f"{time_taken} seconds")
             with col2:
-                estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.02), 4)  # Gemma is free
+                estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.02), 4)
                 st.metric("💰 Estimated Cost", f"${estimated_cost:.4f}")
 
             st.progress(min(estimated_cost / 0.25, 1.0))
-            st.caption("Gemma is free → lower overall cost!")
 
         except Exception as e:
             st.error(f"Error running council: {str(e)}")
