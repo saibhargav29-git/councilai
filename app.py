@@ -8,7 +8,7 @@ import time
 st.set_page_config(page_title="CouncilAI", page_icon="🧠", layout="wide")
 
 st.title("🧠 CouncilAI - Your AI Council")
-st.markdown("Multiple frontier models debate and deliver the **best answer**")
+st.markdown("Multiple frontier models **debate** → One Chairman **synthesizes** the best answer")
 
 # ====================== MODEL AVATARS ======================
 MODEL_AVATARS = {
@@ -16,6 +16,14 @@ MODEL_AVATARS = {
     "claude": "⚖️",
     "gpt": "🚀",
 }
+
+# ====================== AVAILABLE MODELS ======================
+ALL_AVAILABLE_MODELS = [
+    "openrouter/x-ai/grok-4.1-fast",
+    "openrouter/anthropic/claude-sonnet-4-6",
+    "openrouter/openai/gpt-4.1",
+    # Add more models here in future
+]
 
 # ====================== SIDEBAR ======================
 with st.sidebar:
@@ -31,16 +39,20 @@ with st.sidebar:
     if openrouter_key:
         os.environ["OPENROUTER_API_KEY"] = openrouter_key
 
-    available_models = [
-        "openrouter/x-ai/grok-4.1-fast",
-        "openrouter/anthropic/claude-sonnet-4-6",
-        "openrouter/openai/gpt-4.1"
-    ]
-    
+    # Council Members (Debaters)
     selected_models = st.multiselect(
-        "Select Council Members (2-3 recommended)", 
-        available_models, 
-        default=[available_models[0], available_models[1]]
+        "Council Members (Debaters)", 
+        ALL_AVAILABLE_MODELS, 
+        default=[ALL_AVAILABLE_MODELS[0], ALL_AVAILABLE_MODELS[1]],
+        help="These models will debate with each other"
+    )
+
+    # Chairman - Now completely independent
+    chairman_model = st.selectbox(
+        "Chairman Model (Final Synthesis)", 
+        ALL_AVAILABLE_MODELS,
+        index=0,  # Default to Grok
+        help="This model will synthesize the final answer. Can be different from debaters."
     )
 
     personas = {}
@@ -55,9 +67,8 @@ with st.sidebar:
         personas[model] = st.text_input(f"{avatar} Persona for {short_name}", value=default_persona)
 
     num_rounds = st.slider("Number of Debate Rounds", 1, 3, 1)
-    chairman_model = st.selectbox("Chairman Model (Final Synthesis)", selected_models)
 
-    st.caption("💰 Using cheap models → ~2–8 cents per run")
+    st.caption("💰 Tip: Keep 2-3 debaters + 1 chairman for best cost/performance")
 
 # ====================== MAIN INPUT ======================
 query = st.text_area(
@@ -85,7 +96,7 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
         "num_rounds": num_rounds,
         "selected_models": selected_models,
         "personas": personas,
-        "chairman_model": chairman_model,
+        "chairman_model": chairman_model,        # Now properly passed
         "final_answer": ""
     }
 
@@ -96,20 +107,17 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
             end_time = time.time()
             time_taken = round(end_time - start_time, 2)
 
-            # ====================== DISPLAY DISCUSSION ======================
+            # ====================== DISPLAY ======================
             st.subheader("📜 Council Discussion")
 
             tab1, tab2 = st.tabs(["💬 Live Chat View (WhatsApp Style)", "📋 Round-wise View"])
 
-            # ------------------- WhatsApp-style Live Chat -------------------
             with tab1:
                 st.caption("Models debating like friends in a group chat 👥")
 
-                # Show original query as first message
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(f"**Question:** {query}")
 
-                # Show council members' responses
                 for round_list in result.get("round_responses", []):
                     for resp in round_list:
                         model_name = resp["model"].split("/")[-1]
@@ -121,13 +129,12 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
                             st.caption(f"**{model_name}** • Round {resp.get('round', 1)}")
                             st.markdown(resp["content"])
 
-                # Show Final Chairman
+                # Final Chairman Message
                 if result.get("final_answer"):
                     with st.chat_message(name="Chairman", avatar="🏛️"):
-                        st.caption("**Chairman** • Final Synthesis")
+                        st.caption(f"**Chairman ({chairman_model.split('/')[-1]})** • Final Synthesis")
                         st.success(result["final_answer"])
 
-            # ------------------- Round-wise View (Original) -------------------
             with tab2:
                 round_dict = {}
                 for round_list in result.get("round_responses", []):
@@ -149,17 +156,17 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
                             st.write(resp["content"])
                             st.divider()
 
-            # ====================== ANALYTICS ======================
+            # Analytics
             st.subheader("📊 Usage Analytics")
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("⏱️ Time Taken", f"{time_taken} seconds")
             with col2:
-                estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.015), 4)
+                estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.02), 4)  # slightly increased
                 st.metric("💰 Estimated Cost", f"${estimated_cost:.4f}")
 
-            st.progress(min(estimated_cost / 0.20, 1.0))
-            st.caption("Cost bar (0.20 USD = high usage for one run)")
+            st.progress(min(estimated_cost / 0.25, 1.0))
+            st.caption("Cost bar (higher = more expensive run)")
 
         except Exception as e:
             st.error(f"Error running council: {str(e)}")
