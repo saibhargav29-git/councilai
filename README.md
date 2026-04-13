@@ -2,6 +2,9 @@
 
 **An AI Council where multiple frontier models discuss, debate, and deliver the best possible answer.**
 
+🔗 Live App
+
+[Launch CouncilAI on Streamlit Cloud](https://councilai-io.streamlit.app/)
 
 
 ## ✨ What is CouncilAI?
