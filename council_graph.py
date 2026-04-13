@@ -19,7 +19,7 @@ class CouncilState(TypedDict):
 
 
 # ====================== HELPER: CALL MODEL ASYNC ======================
-async def call_model(model: str, system_prompt: str, user_content: str, temperature: float = 0.7, max_tokens: int = 500):
+async def call_model(model: str, system_prompt: str, user_content: str, temperature: float = 0.7, max_tokens: int = 1500):
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content}
@@ -115,7 +115,7 @@ Provide the best consolidated solution."""
         system_prompt=system_prompt,
         user_content=user_content,
         temperature=0.5,
-        max_tokens=700
+        max_tokens=2000
     )
 
     # Add final answer to messages
