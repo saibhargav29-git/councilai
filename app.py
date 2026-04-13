@@ -1,3 +1,4 @@
+from council_graph import council_graph, CouncilState
 import streamlit as st
 import asyncio
 from litellm import acompletion
@@ -120,51 +121,69 @@ if st.button("🚀 Convene the Council", type="primary", use_container_width=Tru
         st.error("Please select at least one council member")
         st.stop()
 
-    start_time = time.time()   # Start timing
+    start_time = time.time()
 
-    with st.spinner("Council is debating..."):
+    # Prepare initial state
+    initial_state: CouncilState = {
+        "query": query,
+        "messages": [HumanMessage(content=query)],
+        "round_responses": [],
+        "current_round": 1,
+        "num_rounds": num_rounds,
+        "selected_models": selected_models,
+        "personas": personas,
+        "final_answer": ""
+    }
+
+    with st.spinner("Council is debating using LangGraph..."):
         try:
-            result = asyncio.run(run_council(query, selected_models, personas, num_rounds, chairman_model))
+            # Run the graph
+            result = asyncio.run(council_graph.ainvoke(initial_state))
+            
             end_time = time.time()
             time_taken = round(end_time - start_time, 2)
 
-            # Display Discussion with Avatars
+            # ====================== DISPLAY DISCUSSION ======================
             st.subheader("📜 Council Discussion")
-            for round_num, round_data in enumerate(result["rounds"], 1):
-                with st.expander(f"Round {round_num}", expanded=True):
-                    for resp in round_data["responses"]:
+            
+            # Group responses by round (LangGraph stores them flattened)
+            round_dict = {}
+            for resp_list in result.get("round_responses", []):
+                if not isinstance(resp_list, list):
+                    resp_list = [resp_list]
+                for resp in resp_list:
+                    r = resp.get("round", 1)
+                    if r not in round_dict:
+                        round_dict[r] = []
+                    round_dict[r].append(resp)
+
+            for r in sorted(round_dict.keys()):
+                with st.expander(f"Round {r}", expanded=True):
+                    for resp in round_dict[r]:
                         model_name = resp["model"].split("/")[-1]
                         avatar_key = next((k for k in MODEL_AVATARS if k in model_name.lower()), "gpt")
                         avatar = MODEL_AVATARS[avatar_key]
+                        
                         st.markdown(f"{avatar} **{model_name}**")
                         st.caption(personas.get(resp["model"], ""))
                         st.write(resp["content"])
                         st.divider()
 
+            # Final Answer
             st.subheader("🏛️ Final Consensus")
-            st.success(result["final"])
+            st.success(result.get("final_answer", "No final answer generated."))
 
-            # ====================== VISUAL COST & TIME PANEL ======================
+            # Analytics
             st.subheader("📊 Usage Analytics")
-
             col1, col2 = st.columns(2)
-            
             with col1:
-                st.metric(label="⏱️ Time Taken", value=f"{time_taken} seconds")
-            
+                st.metric("⏱️ Time Taken", f"{time_taken} seconds")
             with col2:
                 estimated_cost = round(0.03 + (len(selected_models) * num_rounds * 0.015), 4)
-                st.metric(label="💰 Estimated Cost", value=f"${estimated_cost}")
+                st.metric("💰 Estimated Cost", f"${estimated_cost:.4f}")
 
-            # Simple Cost Bar Visualization
-            st.progress(min(estimated_cost / 0.20, 1.0))  # Assuming $0.20 is "high" for one run
-            st.caption("Cost bar (0.20 USD = high usage for one council run)")
-
-            st.info("💡 Tip: Using fewer models and 1 round keeps costs under 5 cents.")
+            st.progress(min(estimated_cost / 0.20, 1.0))
+            st.caption("Cost bar (0.20 USD = high usage)")
 
         except Exception as e:
-            error_text = str(e)
-            if "valid model ID" in error_text or "invalid_request_error" in error_text:
-                st.error("Model not available. Please try different models.")
-            else:
-                st.error(f"Error: {error_text}")
+            st.error(f"Error running council graph: {str(e)}")
