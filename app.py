@@ -22,6 +22,7 @@ MODEL_AVATARS = {
 ALL_AVAILABLE_MODELS = [
     "openrouter/x-ai/grok-4.1-fast",
     "openrouter/anthropic/claude-sonnet-4-6",
+    "openrouter/anthropic/claude-2.1",
     "openrouter/openai/gpt-4.1",
     "openrouter/google/gemma-4-26b-a4b-it:free",
 ]
@@ -45,7 +46,7 @@ with st.sidebar:
         ALL_AVAILABLE_MODELS, 
         default=[
             "openrouter/openai/gpt-4.1",
-            "openrouter/google/gemma-4-26b-a4b-it:free"
+            "openrouter/anthropic/claude-2.1"
         ],
         help="These models will debate"
     )

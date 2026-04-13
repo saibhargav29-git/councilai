@@ -21,20 +21,32 @@ class CouncilState(TypedDict):
 
 
 # ====================== HELPER ======================
+
+def is_rate_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "ratelimiterror" in text or "429" in text or "rate limit" in text or "temporarily rate-limited" in text
+
+
 async def call_model(model: str, system_prompt: str, user_content: str, temperature: float = 0.7, max_tokens: int = 600):
-    try:
-        response = await acompletion(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"[Error with {model.split('/')[-1]}]: {str(e)}"
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = await acompletion(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            if is_rate_limit_error(e) and attempt < max_attempts:
+                wait_seconds = 2 ** attempt
+                await asyncio.sleep(wait_seconds)
+                continue
+            return f"[Error with {model.split('/')[-1]}]: {str(e)}"
 
 
 # ====================== NODE: DEBATE ROUND ======================
