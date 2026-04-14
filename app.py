@@ -8,7 +8,7 @@ import time
 st.set_page_config(page_title="CouncilAI", page_icon="🧠", layout="wide")
 
 st.title("🧠 CouncilAI - Your AI Council")
-st.markdown("**Grok (Critic)** → GPT + Gemma debate → **Claude (Chairman)** synthesizes")
+st.markdown("**Grok (Critic)** → GPT + LLAMA debate → **Claude (Chairman)** synthesizes")
 
 # ====================== MODEL AVATARS ======================
 MODEL_AVATARS = {
