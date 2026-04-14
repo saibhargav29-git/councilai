@@ -17,7 +17,7 @@ Instead of asking a single LLM, CouncilAI lets **multiple AI models** debate acr
 This approach significantly reduces hallucinations and produces more balanced, high-quality outputs.
 
 ## 🎥 Demo Video
-[Watch the demo](https://www.loom.com/share/3fa9529d01f34033ac04616ce06cf10c)  
+[Watch the demo](https://www.loom.com/share/b675a5710172401d929a2e7ad4be97fa)  
 
 
 ## 🚀 Features
